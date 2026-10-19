@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model GithubUser {
+  id               Int      @id @default(autoincrement())
+  login            String   @unique
+  githubId         Int      @unique
+  name             String?
+  bio              String?
+  location         String?
+  country          String?
+  company          String?
+  blog             String?
+  twitterUsername  String?
+  hireable         Boolean?
+  publicRepos      Int?
+  followersCount   Int?
+  followingCount   Int?
+  githubCreatedAt  DateTime?
+  avatarUrl        String?
+  htmlUrl          String?
+  publicEmail      String?
+  emailSource      String?
+  emailStatus      String   @default("pending")
+  enrichError      String?
+  enrichedAt       DateTime?
+  fetchedAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  relations        UserRelation[]
+  threads          Thread[]
+}
+
+model UserRelation {
+  id          Int        @id @default(autoincrement())
+  sourceLogin String
+  type        String
+  userId      Int
+  user        GithubUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceLogin, type, userId])
+  @@index([sourceLogin, type])
+}
+
+model ImportJob {
+  id                Int      @id @default(autoincrement())
+  sourceLogin       String
+  includeFollowers  Boolean  @default(true)
+  includeFollowing  Boolean  @default(true)
+  status            String   @default("queued")
+  phase             String?
+  processed         Int      @default(0)
+  total             Int      @default(0)
+  emailsFound       Int      @default(0)
+  error             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Thread {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @unique
+  user      GithubUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  status    String    @default("open")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id         Int       @id @default(autoincrement())
+  threadId   Int
+  thread     Thread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  direction  String
+  fromAddr   String
+  toAddr     String
+  subject    String
+  body       String
+  status     String
+  messageId  String?
+  inReplyTo  String?
+  error      String?
+  sentAt     DateTime?
+  readAt     DateTime?
+  sendAfter  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model Setting {
+  key   String @id
+  value String
+}
