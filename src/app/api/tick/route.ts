@@ -22,7 +22,9 @@ export async function POST(request: Request) {
     drain = false;
     limit = 1;
   }
-  const sent = await processSendQueue(limit, { respectInterval: !drain });
+  const sent = await processSendQueue(drain ? Math.min(limit, 3) : 1, {
+    respectInterval: true,
+  });
   const inbound = await pollInbound();
   const ceInbox = await pollCeInbox();
   const unread = await unreadSummary();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ceRecordId, isCeUser } from "@/lib/ce";
+import { ceIntervalMinutes, ceRecordId, isCeUser } from "@/lib/ce";
 import { parseDripTemplates, pickTemplate, randomInt, shuffle } from "@/lib/drip";
 import { prisma } from "@/lib/prisma";
 import { setReadAt, setSendAfter } from "@/lib/send-after";
@@ -63,10 +63,23 @@ export async function POST(request: Request) {
   const templates = parseDripTemplates(settings.dripTemplates);
   const minMinutes = Math.max(1, Number(settings.dripMinMinutes || "25") || 25);
   const maxMinutes = Math.max(minMinutes, Number(settings.dripMaxMinutes || "80") || 80);
-  const ordered = drip ? shuffle(users) : users;
+  const ceGap = ceIntervalMinutes(settings);
+  const ordered = drip || users.some((u) => isCeUser(u)) ? shuffle(users) : users;
+
+  const lastCe = await prisma.message.findFirst({
+    where: {
+      direction: "out",
+      status: "sent",
+      toAddr: { startsWith: "ce:" },
+      sentAt: { not: null },
+    },
+    orderBy: { sentAt: "desc" },
+    select: { sentAt: true },
+  });
+  let sendAfter = new Date();
+  let ceSlot = lastCe?.sentAt ? new Date(lastCe.sentAt) : new Date();
 
   const created = [];
-  let sendAfter = new Date();
   for (const user of ordered) {
     const vars = {
       login: user.login,
@@ -86,6 +99,9 @@ export async function POST(request: Request) {
     if (drip && !ceId) {
       sendAfter = new Date(sendAfter.getTime() + randomInt(minMinutes, maxMinutes) * 60_000);
     }
+    if (ceId && (queue || drip)) {
+      ceSlot = new Date(ceSlot.getTime() + randomInt(ceGap.min, ceGap.max) * 60_000);
+    }
 
     const thread = await getOrCreateThread(user.id, subject);
     const toAddr = ceId ? `ce:${ceId}` : user.publicEmail!;
@@ -101,7 +117,9 @@ export async function POST(request: Request) {
       },
     });
     await setReadAt(message.id);
-    if (drip && !ceId) {
+    if (ceId && (queue || drip)) {
+      await setSendAfter(message.id, ceSlot);
+    } else if (drip && !ceId) {
       await setSendAfter(message.id, sendAfter);
     }
     const full = await prisma.thread.findUniqueOrThrow({
@@ -114,11 +132,11 @@ export async function POST(request: Request) {
   return NextResponse.json({
     created: created.length,
     threads: created,
-    drip: drip
+    drip: drip || users.some((u) => isCeUser(u))
       ? {
-          minMinutes,
-          maxMinutes,
-          until: sendAfter.toISOString(),
+          minMinutes: users.some((u) => isCeUser(u)) ? ceGap.min : minMinutes,
+          maxMinutes: users.some((u) => isCeUser(u)) ? ceGap.max : maxMinutes,
+          until: (users.some((u) => isCeUser(u)) ? ceSlot : sendAfter).toISOString(),
         }
       : null,
   });

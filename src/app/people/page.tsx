@@ -9,6 +9,7 @@ type Relation = { type: string; sourceLogin: string };
 type Person = ProfileView & {
   id: number;
   relations: Relation[];
+  sendStatus?: string | null;
 };
 
 function canMail(user: Person) {
@@ -29,7 +30,16 @@ async function readJson<T>(res: Response): Promise<T | null> {
 
 export default function PeoplePage() {
   const [users, setUsers] = useState<Person[]>([]);
-  const [stats, setStats] = useState({ total: 0, found: 0, pending: 0, none: 0, ce: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    found: 0,
+    pending: 0,
+    none: 0,
+    ce: 0,
+    sent: 0,
+    queued: 0,
+    failed: 0,
+  });
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<number[]>([]);
@@ -143,6 +153,7 @@ export default function PeoplePage() {
       setSelected([]);
       setConfirmSend(false);
       void loadDrip();
+      void load();
     } finally {
       setBusy(false);
     }
@@ -188,6 +199,7 @@ export default function PeoplePage() {
       );
       setSelected([]);
       void loadDrip();
+      void load();
     } finally {
       setBusy(false);
     }
@@ -199,6 +211,9 @@ export default function PeoplePage() {
     ["pending", stats.pending],
     ["none", stats.none],
     ["ce", stats.ce || 0],
+    ["sent", stats.sent || 0],
+    ["queued", stats.queued || 0],
+    ["failed", stats.failed || 0],
   ] as const;
 
   return (
@@ -286,6 +301,9 @@ export default function PeoplePage() {
                       : ""}
                   </p>
                 </div>
+                {user.sendStatus ? (
+                  <span className={`badge badge-${user.sendStatus}`}>{user.sendStatus}</span>
+                ) : null}
                 <p className="hidden max-w-[220px] truncate text-[12px] text-[var(--muted)] sm:block">
                   {user.publicEmail || user.emailStatus}
                 </p>

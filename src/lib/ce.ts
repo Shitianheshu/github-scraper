@@ -49,6 +49,21 @@ export function isCeAddress(addr: string) {
   return addr.startsWith("ce:");
 }
 
+export function isCeThrottleError(err: string) {
+  return /too many messages|too short period|forced time delay|purchasing a membership/i.test(
+    err,
+  );
+}
+
+export function ceIntervalMinutes(settings: {
+  ceMinMinutes?: string;
+  ceMaxMinutes?: string;
+}) {
+  const min = Math.max(60, Number(settings.ceMinMinutes || "180") || 180);
+  const max = Math.max(min, Number(settings.ceMaxMinutes || "360") || 360);
+  return { min, max };
+}
+
 function mergeCookie(existing: string, setCookie: string[]) {
   const map = new Map<string, string>();
   for (const part of existing.split(";")) {
@@ -232,6 +247,11 @@ export async function sendCeMessage(recordId: number, body: string) {
   if (text.includes("notLogged")) {
     throw new Error("Conversation Exchange session expired. Re-save login in Settings.");
   }
+  if (isCeThrottleError(text)) {
+    throw new Error(
+      "Too many messages sent in a too short period of time. Please try again later.",
+    );
+  }
   let parsed: { err?: string } | string = text;
   try {
     parsed = JSON.parse(text) as { err?: string } | string;
@@ -243,15 +263,6 @@ export async function sendCeMessage(recordId: number, body: string) {
   }
   if (typeof parsed === "object" && parsed && parsed.err) {
     throw new Error(parsed.err);
-  }
-
-  const needle = body.replace(/\s+/g, " ").trim().slice(0, 40);
-  const conv = await getCeConversation(recordId);
-  const blob = JSON.stringify(conv).replace(/<[^>]+>/g, " ");
-  if (needle && !blob.toLowerCase().includes(needle.slice(0, 24).toLowerCase())) {
-    throw new Error(
-      "CE did not store the message. Open Sent on conversationexchange.com. If empty, paste a fresh Cookie in Settings (Cloudflare often blocks password login).",
-    );
   }
   return `ce-${recordId}-${Date.now()}`;
 }

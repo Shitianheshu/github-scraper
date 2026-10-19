@@ -113,6 +113,26 @@ a:hover {
   font-weight: 650;
 }
 
+.badge-sent {
+  background: var(--accent);
+  text-transform: lowercase;
+}
+
+.badge-queued {
+  background: #3f3f46;
+  text-transform: lowercase;
+}
+
+.badge-failed {
+  background: var(--danger);
+  text-transform: lowercase;
+}
+
+.badge-draft {
+  background: #52525b;
+  text-transform: lowercase;
+}
+
 .page {
   height: 100%;
   overflow: auto;

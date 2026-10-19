@@ -26,6 +26,7 @@ export default function InboxPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [reply, setReply] = useState("");
   const [error, setError] = useState("");
   const [showProfile, setShowProfile] = useState(true);
@@ -57,12 +58,17 @@ export default function InboxPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return threads;
     return threads.filter((thread) => {
+      const lastOut = [...thread.messages].reverse().find((m) => m.direction === "out");
+      if (statusFilter === "unread" && !(thread.unreadCount > 0)) return false;
+      if (statusFilter === "sent" && lastOut?.status !== "sent") return false;
+      if (statusFilter === "queued" && lastOut?.status !== "queued") return false;
+      if (statusFilter === "failed" && lastOut?.status !== "failed") return false;
+      if (!q) return true;
       const hay = `${thread.user.name} ${thread.user.login} ${thread.user.publicEmail}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [threads, query]);
+  }, [threads, query, statusFilter]);
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) || filtered[0] || null,
@@ -117,6 +123,18 @@ export default function InboxPage() {
             placeholder="Search conversations"
             className="field"
           />
+          <div className="mt-2 flex flex-wrap gap-1">
+            {["all", "sent", "queued", "failed", "unread"].map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`btn h-7 px-2 text-[11px] ${statusFilter === key ? "btn-primary" : ""}`}
+                onClick={() => setStatusFilter(key)}
+              >
+                {key}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
@@ -143,7 +161,11 @@ export default function InboxPage() {
                       <span className={`truncate text-[13px] ${unread ? "font-semibold" : ""}`}>
                         {thread.user.name || thread.user.login}
                       </span>
-                      {unread > 0 ? <span className="badge">{unread}</span> : null}
+                      {unread > 0 ? (
+                        <span className="badge">{unread}</span>
+                      ) : last?.direction === "out" && last.status ? (
+                        <span className={`badge badge-${last.status}`}>{last.status}</span>
+                      ) : null}
                     </span>
                     <span className="mt-0.5 block truncate text-[12px] text-[var(--muted)]">
                       {last?.body?.replace(/\s+/g, " ") || "No messages"}

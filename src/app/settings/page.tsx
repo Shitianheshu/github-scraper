@@ -176,8 +176,9 @@ export default function SettingsPage() {
           <div className="section">
             <h2>Conversation Exchange</h2>
             <p className="hint">
-              Search import does not need this. Sending and reading CE chats does. Prefer Cookie if
-              Cloudflare blocks password login. Do not paste the password in chat — only here.
+              CE blocks bursts (“too many messages in a too short period”). Default gap is 3–6 hours,
+              one CE send at a time. Throttled messages stay queued, not failed. Cookie login if
+              Cloudflare blocks password.
             </p>
             <Field
               label="CE email"
@@ -203,6 +204,16 @@ export default function SettingsPage() {
               label="Default CE import pages"
               value={form.ceMaxPages || ""}
               onChange={(v) => set("ceMaxPages", v)}
+            />
+            <Field
+              label="CE min minutes between sends"
+              value={form.ceMinMinutes || "180"}
+              onChange={(v) => set("ceMinMinutes", v)}
+            />
+            <Field
+              label="CE max minutes between sends"
+              value={form.ceMaxMinutes || "360"}
+              onChange={(v) => set("ceMaxMinutes", v)}
             />
             <button
               type="button"

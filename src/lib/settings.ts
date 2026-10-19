@@ -25,6 +25,8 @@ export type AppSettings = {
   cePassword: string;
   ceCookie: string;
   ceMaxPages: string;
+  ceMinMinutes: string;
+  ceMaxMinutes: string;
 };
 
 const DEFAULTS: AppSettings = {
@@ -53,6 +55,8 @@ const DEFAULTS: AppSettings = {
   cePassword: "",
   ceCookie: "",
   ceMaxPages: "20",
+  ceMinMinutes: "180",
+  ceMaxMinutes: "360",
 };
 
 export async function getSettings(): Promise<AppSettings> {

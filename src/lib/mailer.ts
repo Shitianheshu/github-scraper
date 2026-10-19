@@ -1,5 +1,11 @@
 import nodemailer from "nodemailer";
-import { isCeAddress, sendCeMessage } from "./ce";
+import {
+  ceIntervalMinutes,
+  isCeAddress,
+  isCeThrottleError,
+  sendCeMessage,
+} from "./ce";
+import { randomInt } from "./drip";
 import { prisma } from "./prisma";
 import { dueQueuedIds, nextQueuedAt } from "./send-after";
 import { getSettings, type AppSettings } from "./settings";
@@ -155,10 +161,16 @@ export async function processSendQueue(
   const remaining = Math.max(0, cap - already);
   if (remaining === 0) return { sent: 0, skipped: "cap" as const };
 
-  await prisma.$executeRaw`
-    UPDATE Message SET sendAfter = NULL
-    WHERE status = 'queued' AND toAddr LIKE 'ce:%'
-  `;
+  const ceGap = ceIntervalMinutes(settings);
+  const lastCe = await prisma.message.findFirst({
+    where: { direction: "out", status: "sent", toAddr: { startsWith: "ce:" }, sentAt: { not: null } },
+    orderBy: { sentAt: "desc" },
+    select: { sentAt: true },
+  });
+  const ceWaitMs = lastCe?.sentAt
+    ? lastCe.sentAt.getTime() + ceGap.min * 60_000 - Date.now()
+    : 0;
+  const ceReady = ceWaitMs <= 0;
 
   const ids = await dueQueuedIds(Math.min(limit, remaining));
   const queued =
@@ -185,8 +197,17 @@ export async function processSendQueue(
     }
   }
 
-  const work = intervalBlocked ? ceQueued : queued;
+  const ceWork = ceReady ? ceQueued.slice(0, 1) : [];
+  const mailWork = intervalBlocked ? [] : mailQueued;
+  const work = [...ceWork, ...mailWork];
   if (work.length === 0) {
+    if (!ceReady && ceQueued.length > 0) {
+      return {
+        sent: 0,
+        skipped: "ce-interval" as const,
+        waitMinutes: Math.ceil(ceWaitMs / 60_000),
+      };
+    }
     if (intervalBlocked) return { sent: 0, skipped: "interval" as const };
     return { sent: 0, via: useGas ? "gas" : "smtp" };
   }
@@ -224,10 +245,21 @@ export async function processSendQueue(
     } catch (error) {
       const err = error instanceof Error ? error.message : String(error);
       errors.push(err.slice(0, 180));
-      await prisma.message.update({
-        where: { id: message.id },
-        data: { status: "failed", error: err.slice(0, 500) },
-      });
+      if (isCeAddress(message.toAddr) && isCeThrottleError(err)) {
+        const later = new Date(Date.now() + ceGap.max * 60_000);
+        await prisma.message.update({
+          where: { id: message.id },
+          data: { status: "queued", error: err.slice(0, 500) },
+        });
+        await prisma.$executeRaw`
+          UPDATE Message SET sendAfter = ${later.toISOString()} WHERE id = ${message.id}
+        `;
+      } else {
+        await prisma.message.update({
+          where: { id: message.id },
+          data: { status: "failed", error: err.slice(0, 500) },
+        });
+      }
     }
   }
   return { sent, failed: errors.length, error: errors[0], via };

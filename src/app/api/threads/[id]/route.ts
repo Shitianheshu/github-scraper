@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
-import { ceRecordId, isCeUser, sendCeMessage } from "@/lib/ce";
+import {
+  ceIntervalMinutes,
+  ceRecordId,
+  isCeThrottleError,
+  isCeUser,
+  sendCeMessage,
+} from "@/lib/ce";
+import { randomInt } from "@/lib/drip";
 import { prisma } from "@/lib/prisma";
-import { setReadAt } from "@/lib/send-after";
+import { setReadAt, setSendAfter } from "@/lib/send-after";
 import { getSettings } from "@/lib/settings";
 
 export async function GET(
@@ -46,14 +53,42 @@ export async function POST(
   let messageId: string | null = null;
   let sentAt: Date | null = null;
 
+  let sendAfter: Date | null = null;
   if (queue && ceId) {
-    try {
-      messageId = await sendCeMessage(ceId, text);
-      status = "sent";
-      sentAt = new Date();
-    } catch (err) {
-      status = "failed";
-      error = err instanceof Error ? err.message : String(err);
+    const gap = ceIntervalMinutes(settings);
+    const lastCe = await prisma.message.findFirst({
+      where: {
+        direction: "out",
+        status: "sent",
+        toAddr: { startsWith: "ce:" },
+        sentAt: { not: null },
+      },
+      orderBy: { sentAt: "desc" },
+      select: { sentAt: true },
+    });
+    const waitMs = lastCe?.sentAt
+      ? lastCe.sentAt.getTime() + gap.min * 60_000 - Date.now()
+      : 0;
+    if (waitMs > 0) {
+      status = "queued";
+      sendAfter = new Date(Date.now() + waitMs + randomInt(0, 30) * 60_000);
+      error = `CE rate limit: waiting ~${Math.ceil(waitMs / 60_000)} min`;
+    } else {
+      try {
+        messageId = await sendCeMessage(ceId, text);
+        status = "sent";
+        sentAt = new Date();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isCeThrottleError(msg)) {
+          status = "queued";
+          sendAfter = new Date(Date.now() + gap.max * 60_000);
+          error = msg;
+        } else {
+          status = "failed";
+          error = msg;
+        }
+      }
     }
   }
 
@@ -73,6 +108,7 @@ export async function POST(
     },
   });
   await setReadAt(message.id);
+  if (sendAfter) await setSendAfter(message.id, sendAfter);
   await prisma.thread.update({
     where: { id: thread.id },
     data: { status: "open" },
@@ -80,5 +116,5 @@ export async function POST(
   if (status === "failed") {
     return NextResponse.json({ error: error || "CE send failed", message }, { status: 400 });
   }
-  return NextResponse.json({ message });
+  return NextResponse.json({ message, queuedUntil: sendAfter?.toISOString() || null });
 }
